@@ -51,6 +51,7 @@ just test             # Run tests (pytest)
 - Use existing patterns and conventions within each service
 - Do not use emojis in code, comments, or CLI output - keep all text professional and plain
 - Use `structlog` for all logging throughout the backend
+- Use snake_case for structured log event names (e.g., `logger.error("no_files_found", ...)` instead of `"No files found"`)
 
 ## Issue Management
 
