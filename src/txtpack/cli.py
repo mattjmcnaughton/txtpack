@@ -1,6 +1,6 @@
 """File bundling tool for prompt library.
 
-Provides concat and split commands for bundling files matching regex patterns
+Provides pack and unpack commands for bundling files matching regex patterns
 into a single stream and reconstructing the original files.
 """
 
@@ -51,18 +51,18 @@ app = typer.Typer(
     help="""Bundle and unbundle files using pattern matching for prompt library workflows.
 
 Examples:
-  # Concatenate all sacf-* files to stdout
-  uv run txtpack concat "sacf-*"
+  # Pack all sacf-* files to stdout
+  uv run txtpack pack "sacf-*"
 
-  # Save concatenated files to a bundle
-  uv run txtpack concat "*.md" > bundle.txt
+  # Save packed files to a bundle
+  uv run txtpack pack "*.md" > bundle.txt
 
-  # Split bundle back to individual files
-  uv run txtpack split --input bundle.txt
+  # Unpack bundle back to individual files
+  uv run txtpack unpack --input bundle.txt
 
   # Round-trip example
-  uv run txtpack concat "sacf-*" | \\
-  uv run txtpack split --output-dir ./restored/""",
+  uv run txtpack pack "sacf-*" | \\
+  uv run txtpack unpack --output-dir ./restored/""",
     rich_markup_mode="markdown",
 )
 
@@ -290,7 +290,7 @@ def _write_extracted_file(filename: str, content: str, output_dir: Path) -> None
 
 
 @app.command()
-def concat(
+def pack(
     pattern: str = typer.Argument(
         ...,
         help="Pattern to match files. Supports glob-style patterns (e.g., 'sacf-*', '*.md') or regex",
@@ -302,7 +302,7 @@ def concat(
         help="Directory to search for files (default: prompts/agentic-coding/commands/)",
     ),
 ) -> None:
-    """Concatenate files matching a pattern to stdout with delimiters.
+    """Pack files matching a pattern to stdout with delimiters.
 
     The output format uses byte-accurate delimiters to separate each file:
     --- FILE: filename.md (123 bytes) ---
@@ -335,20 +335,20 @@ def concat(
 
 
 @app.command()
-def split(
+def unpack(
     input_file: Optional[str] = typer.Option(
-        None, "--input", "-i", help="Input file to split (default: reads from stdin)"
+        None, "--input", "-i", help="Input file to unpack (default: reads from stdin)"
     ),
     output_dir: Optional[str] = typer.Option(
         None,
         "--output-dir",
         "-o",
-        help="Output directory for split files (default: current directory)",
+        help="Output directory for unpacked files (default: current directory)",
     ),
 ) -> None:
-    """Split concatenated input back into individual files.
+    """Unpack concatenated input back into individual files.
 
-    Parses input with file delimiters created by the concat command and
+    Parses input with file delimiters created by the pack command and
     reconstructs the original individual files. Supports both file input
     and stdin for pipeline compatibility.
 
@@ -357,7 +357,7 @@ def split(
     content = _read_input_content(input_file)
 
     if not content.strip():
-        logger.error("no_input_content_to_split")
+        logger.error("no_input_content_to_unpack")
         raise typer.Exit(1)
 
     files = _parse_concatenated_content(content)
@@ -378,7 +378,7 @@ def split(
         )
         raise typer.Exit(1)
 
-    logger.info("splitting_files_to_directory", count=len(files), output_directory=str(output_directory))
+    logger.info("unpacking_files_to_directory", count=len(files), output_directory=str(output_directory))
 
     for filename, file_content in files:
         _write_extracted_file(filename, file_content, output_directory)
