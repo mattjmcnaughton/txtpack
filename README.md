@@ -6,6 +6,18 @@ The tool supports glob patterns for file selection and enables round-trip
 workflows where multiple files can be packed into a single stream
 and later reconstructed back to their original individual files.
 
+## Installation
+
+### Via uv (recommended)
+```bash
+uvx txtpack
+```
+
+### Via pip
+```bash
+pip install txtpack
+```
+
 ## Usage Examples
 
 ### Basic File Packing
