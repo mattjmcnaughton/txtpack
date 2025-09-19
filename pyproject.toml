@@ -1,6 +1,6 @@
 [project]
 name = "txtpack"
-version = "1.0.0"
+version = "1.1.0"
 description = "Pack/unpack multiple files into a single file"
 readme = "README.md"
 license = "MIT"

@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/mattjmcnaughton/txtpack/compare/v1.0.0...v1.1.0) (2025-09-19)
+
+
+### Features
+
+* **ci:** implement automated PyPI publishing with trusted publishing ([ddf8c05](https://github.com/mattjmcnaughton/txtpack/commit/ddf8c05450cc6bd0b03fc9377c86f82773a40b6a)), closes [#4](https://github.com/mattjmcnaughton/txtpack/issues/4)
+
 # 1.0.0 (2025-09-19)
 
 
