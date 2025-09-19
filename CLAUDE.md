@@ -12,24 +12,8 @@ and later reconstructed back to their original individual files.
 
 ## Development Commands
 
-### Installation & Setup
-```bash
-just install          # Install all dependencies
-```
+See [CONTRIBUTING.md](CONTRIBUTING.md) for full development workflow details.
 
-### Code Quality & Testing
-```bash
-# Full CI pipeline
-just ci               # Run all linting, formatting, typechecking, and tests
-
-# Individual checks
-just lint             # Lint
-just lint-fix         # Auto-fix linting issues
-just format           # Format code
-just format-check     # Check formatting without fixing
-just typecheck        # Run type checking
-just test             # Run tests (pytest)
-```
 ## Architecture & Code Organization
 
 - **Tech Stack**: Typer, Python 3.11+, uv package management
@@ -43,15 +27,13 @@ just test             # Run tests (pytest)
 ### Critical Rules
 - **Use justfile commands**: Prefer `just <command>` over direct tool invocation
 - **Quality gates**: Run `just ci` before committing significant changes
-
+- **Follow contributing guidelines**: See [CONTRIBUTING.md](CONTRIBUTING.md) for commit format and workflow
 
 ### Code Style
+- **Follow contributing guidelines**: See [CONTRIBUTING.md](CONTRIBUTING.md) for commit format and workflow
 - Use absolute imports in python
-- Follow Ruff configuration (120 char line length, Python 3.11 target)
 - Use existing patterns and conventions within each service
 - Do not use emojis in code, comments, or CLI output - keep all text professional and plain
-- Use `structlog` for all logging throughout the backend
-- Use snake_case for structured log event names (e.g., `logger.error("no_files_found", ...)` instead of `"No files found"`)
 
 ## Issue Management
 
