@@ -32,8 +32,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for full development workflow details.
 ### Code Style
 - **Follow contributing guidelines**: See [CONTRIBUTING.md](CONTRIBUTING.md) for commit format and workflow
 - Use absolute imports in python
+- Use top-level imports (avoid guarded/conditional imports)
 - Use existing patterns and conventions within each service
 - Do not use emojis in code, comments, or CLI output - keep all text professional and plain
+- **Comments**: Only include comments that explain meaningful additional context; avoid redundant or obvious comments
 
 ## Issue Management
 
