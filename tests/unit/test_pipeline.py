@@ -5,7 +5,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from txtpack.delimiter_processing import BundlerConfig
+from txtpack.delimiter_processing import BundlerConfig, ChecksumAlgorithm
 from txtpack.pipeline import pack_files, unpack_content
 from .conftest import create_test_files
 
@@ -254,3 +254,66 @@ class TestPackUnpackRoundTrip:
             restored_file = restore_dir / filename
             assert restored_file.exists()
             assert restored_file.read_text(encoding="utf-8") == expected_content
+
+
+class TestPackFilesWithChecksums:
+    """Test file packing with checksum functionality."""
+
+    def test_pack_with_md5_checksum(self, temp_dir):
+        """Test packing files with MD5 checksums includes checksum in output."""
+        test_file = temp_dir / "test.txt"
+        test_file.write_text("Hello", encoding="utf-8")
+
+        config = BundlerConfig(checksum_algorithm=ChecksumAlgorithm.MD5)
+        result = pack_files("test.txt", temp_dir, config)
+
+        assert "[md5:" in result
+        assert "8b1a9953c4611296a827abf8c47804d7" in result  # MD5 of "Hello"
+
+    def test_pack_with_sha256_checksum(self, temp_dir):
+        """Test packing files with SHA256 checksums includes checksum in output."""
+        test_file = temp_dir / "test.txt"
+        test_file.write_text("Hello", encoding="utf-8")
+
+        config = BundlerConfig(checksum_algorithm=ChecksumAlgorithm.SHA256)
+        result = pack_files("test.txt", temp_dir, config)
+
+        assert "[sha256:" in result
+        assert "185f8db32271fe25f561a6fc938b2e264306ec304eda518007d1764826381969" in result  # SHA256 of "Hello"
+
+    def test_pack_without_checksum(self, temp_dir):
+        """Test packing files without checksums (default behavior)."""
+        test_file = temp_dir / "test.txt"
+        test_file.write_text("Hello", encoding="utf-8")
+
+        config = BundlerConfig(checksum_algorithm=ChecksumAlgorithm.NONE)
+        result = pack_files("test.txt", temp_dir, config)
+
+        assert "[md5:" not in result
+        assert "[sha256:" not in result
+        assert "--- FILE: test.txt (5 bytes) ---" in result
+
+
+class TestUnpackContentWithChecksums:
+    """Test content unpacking with checksum validation."""
+
+    def test_unpack_with_valid_checksums(self, temp_dir):
+        """Test unpacking content with valid checksums succeeds."""
+        content = """--- FILE: test.txt (5 bytes) [md5:8b1a9953c4611296a827abf8c47804d7] ---
+Hello
+--- END: test.txt ---
+"""
+
+        result = unpack_content(content, temp_dir)
+        assert len(result) == 1
+        assert result[0] == ("test.txt", "Hello")
+
+    def test_unpack_with_verify_checksums_required(self, temp_dir):
+        """Test unpacking with verify_checksums=True requires checksums."""
+        content = """--- FILE: test.txt (5 bytes) ---
+Hello
+--- END: test.txt ---
+"""
+
+        result = unpack_content(content, temp_dir, verify_checksums=True)
+        assert len(result) == 0  # Should fail due to missing checksum

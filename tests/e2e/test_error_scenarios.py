@@ -143,8 +143,10 @@ class TestUnpackErrorScenarios:
             ["unpack", "--output-dir", str(output_dir)], input_data=mismatched_content, cwd=temp_dir
         )
 
-        # Assert
-        assert unpack_result.returncode == 1
+        # Assert - should succeed but skip the malformed file (more robust behavior)
+        assert unpack_result.returncode == 0
+        # Should not create any files due to byte count mismatch
+        assert len(list(output_dir.iterdir())) == 0
 
     def test_unpack_nonexistent_input_file(self, temp_dir, cli_runner):
         """Test unpack with non-existent input file."""

@@ -10,7 +10,9 @@ from typing import List, Optional, Tuple
 from txtpack.delimiter_processing import BundlerConfig, extract_next_file
 
 
-def parse_concatenated_content(content: str, config: Optional[BundlerConfig] = None) -> List[Tuple[str, str]]:
+def parse_concatenated_content(
+    content: str, config: Optional[BundlerConfig] = None, verify_checksums: bool = False
+) -> List[Tuple[str, str]]:
     """Parse concatenated content and extract filename-content pairs using byte-accurate parsing.
 
     This is the core parsing function that replicates the functionality of
@@ -19,6 +21,7 @@ def parse_concatenated_content(content: str, config: Optional[BundlerConfig] = N
     Args:
         content: Concatenated content containing multiple files with delimiters
         config: Optional configuration for delimiter format
+        verify_checksums: Whether to require checksum validation for all files
 
     Returns:
         List of (filename, content) tuples for successfully parsed files
@@ -41,7 +44,7 @@ def parse_concatenated_content(content: str, config: Optional[BundlerConfig] = N
     pos = 0
 
     while pos < len(content_bytes):
-        file_data, new_pos = extract_next_file(content_bytes, pos, config)
+        file_data, new_pos = extract_next_file(content_bytes, pos, config, verify_checksums=verify_checksums)
 
         if file_data is not None:
             files.append(file_data)

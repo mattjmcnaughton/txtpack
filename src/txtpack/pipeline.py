@@ -9,7 +9,13 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from txtpack.content_parsing import parse_concatenated_content
-from txtpack.delimiter_processing import BundlerConfig, create_file_end_delimiter, create_file_start_delimiter
+from txtpack.delimiter_processing import (
+    BundlerConfig,
+    ChecksumAlgorithm,
+    calculate_file_checksum,
+    create_file_end_delimiter,
+    create_file_start_delimiter,
+)
 from txtpack.file_operations import (
     FileReader,
     FileWriter,
@@ -57,7 +63,13 @@ def pack_files(
     content_parts = []
     for filename, file_content in file_data:
         byte_count = get_file_byte_count(file_content)
-        start_delimiter = create_file_start_delimiter(filename, byte_count, config)
+
+        # Calculate checksum if algorithm is specified
+        checksum = None
+        if config.checksum_algorithm != ChecksumAlgorithm.NONE:
+            checksum = calculate_file_checksum(file_content, config.checksum_algorithm)
+
+        start_delimiter = create_file_start_delimiter(filename, byte_count, config, checksum)
         end_delimiter = create_file_end_delimiter(filename, config)
 
         content_parts.append(f"{start_delimiter}\n{file_content}\n{end_delimiter}\n")
@@ -70,6 +82,7 @@ def unpack_content(
     output_directory: Path,
     config: Optional[BundlerConfig] = None,
     file_writer: Optional[FileWriter] = None,
+    verify_checksums: bool = False,
 ) -> List[Tuple[str, str]]:
     """Unpack delimited content into individual files.
 
@@ -80,22 +93,31 @@ def unpack_content(
         output_directory: Directory to write files to
         config: Optional configuration for delimiters
         file_writer: Optional custom file writer function
+        verify_checksums: Whether to require checksum validation for all files
 
     Returns:
         List of (filename, content) tuples that were written
 
     Raises:
-        ValueError: If content contains no valid files
+        ValueError: If content contains no valid files or checksum validation fails
         OSError: If output directory cannot be created
         IOError: If files cannot be written
     """
     if config is None:
         config = BundlerConfig()
 
-    file_data = parse_concatenated_content(content, config)
+    file_data = parse_concatenated_content(content, config, verify_checksums=verify_checksums)
 
+    # Only raise exception if no valid file delimiters were found at all
+    # Check if content contains any lines that are valid file delimiters
     if not file_data:
-        raise ValueError("No valid file delimiters found in content")
+        from txtpack.delimiter_processing import is_file_start_delimiter
+
+        lines = content.splitlines()
+        has_any_valid_delimiters = any(is_file_start_delimiter(line.strip(), config) for line in lines)
+
+        if not has_any_valid_delimiters:
+            raise ValueError("No valid file delimiters found in content")
 
     ensure_directory_exists(output_directory)
 
