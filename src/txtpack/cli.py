@@ -11,7 +11,7 @@ from typing import Optional
 import structlog
 import typer
 
-from txtpack.delimiter_processing import BundlerConfig
+from txtpack.delimiter_processing import BundlerConfig, ChecksumAlgorithm
 from txtpack.file_operations import read_input_content
 from txtpack.pipeline import pack_files, unpack_content
 
@@ -77,6 +77,12 @@ def pack(
         "-d",
         help="Directory to search for files (default: prompts/agentic-coding/commands/)",
     ),
+    checksum_algorithm: ChecksumAlgorithm = typer.Option(
+        ChecksumAlgorithm.NONE,
+        "--checksum-algorithm",
+        "-c",
+        help="Checksum algorithm for file integrity validation (none, md5, sha256)",
+    ),
 ) -> None:
     """Pack files matching a pattern to stdout with delimiters.
 
@@ -95,7 +101,8 @@ def pack(
         raise typer.Exit(1)
 
     try:
-        packed_content = pack_files(pattern, search_dir, _DEFAULT_CONFIG)
+        config = BundlerConfig(checksum_algorithm=checksum_algorithm)
+        packed_content = pack_files(pattern, search_dir, config)
 
         file_count = packed_content.count("--- FILE:")
         logger.info("found_matching_files", count=file_count, pattern=pattern)
@@ -121,6 +128,11 @@ def unpack(
         "-o",
         help="Output directory for unpacked files (default: current directory)",
     ),
+    verify_checksums: bool = typer.Option(
+        False,
+        "--verify-checksums",
+        help="Require checksum validation for all files (fails if checksums missing)",
+    ),
 ) -> None:
     """Unpack concatenated input back into individual files.
 
@@ -139,7 +151,8 @@ def unpack(
     output_directory = _resolve_output_directory(output_dir)
 
     try:
-        files = unpack_content(content, output_directory, _DEFAULT_CONFIG)
+        config = BundlerConfig()
+        files = unpack_content(content, output_directory, config, verify_checksums=verify_checksums)
 
         logger.info("unpacking_files_to_directory", count=len(files), output_directory=str(output_directory))
 

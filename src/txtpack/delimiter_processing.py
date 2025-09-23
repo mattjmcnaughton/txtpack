@@ -5,8 +5,19 @@ used in the pack/unpack workflow. All functions operate on strings/bytes and
 return parsed results without side effects.
 """
 
+import hashlib
+import re
 from dataclasses import dataclass
+from enum import Enum
 from typing import Optional, Tuple
+
+
+class ChecksumAlgorithm(Enum):
+    """Supported checksum algorithms for file integrity validation."""
+
+    NONE = "none"
+    MD5 = "md5"
+    SHA256 = "sha256"
 
 
 @dataclass
@@ -20,15 +31,98 @@ class BundlerConfig:
     file_end_suffix: str = " ---"
 
     default_search_path: str = "."
+    checksum_algorithm: ChecksumAlgorithm = ChecksumAlgorithm.NONE
 
 
-def create_file_start_delimiter(filename: str, byte_count: int, config: Optional[BundlerConfig] = None) -> str:
+def calculate_file_checksum(content: str, algorithm: ChecksumAlgorithm) -> Optional[str]:
+    """Calculate checksum for file content using the specified algorithm.
+
+    Args:
+        content: File content as string
+        algorithm: Checksum algorithm to use
+
+    Returns:
+        Hex-encoded checksum string, or None if algorithm is NONE
+
+    Example:
+        >>> calculate_file_checksum("hello", ChecksumAlgorithm.MD5)
+        '5d41402abc4b2a76b9719d911017c592'
+    """
+    if algorithm == ChecksumAlgorithm.NONE:
+        return None
+
+    content_bytes = content.encode("utf-8")
+
+    if algorithm == ChecksumAlgorithm.MD5:
+        hasher = hashlib.md5()
+    elif algorithm == ChecksumAlgorithm.SHA256:
+        hasher = hashlib.sha256()
+    else:
+        raise ValueError(f"Unsupported checksum algorithm: {algorithm}")
+
+    hasher.update(content_bytes)
+    return hasher.hexdigest()
+
+
+def validate_file_checksum(content: str, expected_checksum: str, algorithm: ChecksumAlgorithm) -> bool:
+    """Validate file content against expected checksum.
+
+    Args:
+        content: File content as string
+        expected_checksum: Expected checksum value
+        algorithm: Checksum algorithm to use for validation
+
+    Returns:
+        True if checksum matches, False otherwise
+
+    Example:
+        >>> validate_file_checksum("hello", "5d41402abc4b2a76b9719d911017c592", ChecksumAlgorithm.MD5)
+        True
+    """
+    if algorithm == ChecksumAlgorithm.NONE:
+        return True
+
+    actual_checksum = calculate_file_checksum(content, algorithm)
+    return actual_checksum == expected_checksum
+
+
+def _build_start_delimiter_pattern(config: BundlerConfig) -> re.Pattern:
+    """Build regex pattern for parsing start delimiters with given config.
+
+    Args:
+        config: Configuration defining delimiter format
+
+    Returns:
+        Compiled regex pattern that captures (filename, byte_count, algorithm, checksum)
+    """
+    # Escape special regex characters in config strings
+    prefix = re.escape(config.file_start_prefix)
+    middle = re.escape(config.file_start_middle)
+
+    # Handle bytes suffix - extract the part before " ---" for checksum support
+    bytes_suffix = config.file_start_bytes_suffix
+    if bytes_suffix.endswith(" ---"):
+        bytes_pattern = re.escape(bytes_suffix[:-4])  # Remove " ---" part
+        end_pattern = r"(?: \[(\w+):([a-f0-9]+)\])? ---"
+    else:
+        bytes_pattern = re.escape(bytes_suffix)
+        end_pattern = ""
+
+    # Build pattern: prefix + (filename) + middle + (digits) + bytes_pattern + optional_checksum + end
+    pattern = f"{prefix}(.+?){middle}(\\d+){bytes_pattern}{end_pattern}"
+    return re.compile(pattern)
+
+
+def create_file_start_delimiter(
+    filename: str, byte_count: int, config: Optional[BundlerConfig] = None, checksum: Optional[str] = None
+) -> str:
     """Create a file start delimiter.
 
     Args:
         filename: Name of the file
         byte_count: Number of bytes in the file content
         config: Optional configuration for delimiter format
+        checksum: Optional checksum string to include in delimiter
 
     Returns:
         Formatted start delimiter string
@@ -36,11 +130,25 @@ def create_file_start_delimiter(filename: str, byte_count: int, config: Optional
     Example:
         >>> create_file_start_delimiter("test.txt", 123)
         '--- FILE: test.txt (123 bytes) ---'
+        >>> create_file_start_delimiter("test.txt", 123, checksum="abc123")
+        '--- FILE: test.txt (123 bytes) [checksum:abc123] ---'
     """
     if config is None:
         config = BundlerConfig()
 
-    return f"{config.file_start_prefix}{filename}{config.file_start_middle}{byte_count}{config.file_start_bytes_suffix}"
+    # Direct template formatting based on checksum presence
+    if checksum is not None and config.checksum_algorithm != ChecksumAlgorithm.NONE:
+        # Format with checksum - handle both default and custom configs
+        if config.file_start_bytes_suffix.endswith(" ---"):
+            # Default config or similar - insert checksum before final " ---"
+            bytes_part = config.file_start_bytes_suffix[:-4]  # Remove " ---"
+            return f"{config.file_start_prefix}{filename}{config.file_start_middle}{byte_count}{bytes_part} [{config.checksum_algorithm.value}:{checksum}] ---"
+        else:
+            # Custom config - append checksum info
+            return f"{config.file_start_prefix}{filename}{config.file_start_middle}{byte_count}{config.file_start_bytes_suffix} [{config.checksum_algorithm.value}:{checksum}]"
+    else:
+        # Standard format without checksum
+        return f"{config.file_start_prefix}{filename}{config.file_start_middle}{byte_count}{config.file_start_bytes_suffix}"
 
 
 def create_file_end_delimiter(filename: str, config: Optional[BundlerConfig] = None) -> str:
@@ -76,60 +184,77 @@ def is_file_start_delimiter(line: str, config: Optional[BundlerConfig] = None) -
     Example:
         >>> is_file_start_delimiter("--- FILE: test.txt (123 bytes) ---")
         True
+        >>> is_file_start_delimiter("--- FILE: test.txt (123 bytes) [checksum:abc123] ---")
+        True
         >>> is_file_start_delimiter("regular content")
         False
     """
     if config is None:
         config = BundlerConfig()
 
-    return (
-        line.startswith(config.file_start_prefix)
-        and config.file_start_middle in line
-        and line.endswith(config.file_start_bytes_suffix)
-    )
+    # Use regex pattern for validation - simply try to parse and catch exceptions
+    try:
+        pattern = _build_start_delimiter_pattern(config)
+        return pattern.match(line) is not None
+    except Exception:
+        return False
 
 
-def parse_file_start_delimiter(line: str, config: Optional[BundlerConfig] = None) -> Tuple[str, int]:
-    """Parse filename and byte count from a file start delimiter.
+def parse_file_start_delimiter(
+    line: str, config: Optional[BundlerConfig] = None
+) -> Tuple[str, int, Optional[str], Optional[ChecksumAlgorithm]]:
+    """Parse filename, byte count, and optional checksum from a file start delimiter.
 
     Args:
         line: Start delimiter line to parse
         config: Optional configuration for delimiter format
 
     Returns:
-        Tuple of (filename, byte_count)
+        Tuple of (filename, byte_count, checksum, algorithm) where checksum and algorithm may be None
 
     Raises:
         ValueError: If line is not a valid start delimiter
 
     Example:
         >>> parse_file_start_delimiter("--- FILE: test.txt (123 bytes) ---")
-        ('test.txt', 123)
+        ('test.txt', 123, None, None)
+        >>> parse_file_start_delimiter("--- FILE: test.txt (123 bytes) [md5:abc123] ---")
+        ('test.txt', 123, 'abc123', ChecksumAlgorithm.MD5)
     """
     if config is None:
         config = BundlerConfig()
 
-    if not is_file_start_delimiter(line, config):
+    # Use regex pattern to parse the delimiter
+    pattern = _build_start_delimiter_pattern(config)
+    match = pattern.match(line)
+
+    if not match:
         raise ValueError(f"Not a valid start delimiter: {line}")
 
-    middle_pos = line.find(config.file_start_middle)
-    if middle_pos == -1:
-        raise ValueError(f"Missing middle delimiter in: {line}")
+    # Extract matched groups
+    groups = match.groups()
+    filename = groups[0]
 
-    filename = line[len(config.file_start_prefix) : middle_pos]
-
-    bytes_start = middle_pos + len(config.file_start_middle)
-    bytes_end = line.find(config.file_start_bytes_suffix)
-    if bytes_end == -1:
-        raise ValueError(f"Missing bytes suffix in: {line}")
-
-    byte_count_str = line[bytes_start:bytes_end]
     try:
-        byte_count = int(byte_count_str)
-    except ValueError:
-        raise ValueError(f"Invalid byte count '{byte_count_str}' in: {line}")
+        byte_count = int(groups[1])
+    except (ValueError, IndexError):
+        raise ValueError(f"Invalid byte count in: {line}")
 
-    return filename, byte_count
+    # Extract checksum info if present (groups 2 and 3)
+    checksum = None
+    algorithm = None
+
+    if len(groups) >= 4 and groups[2] and groups[3]:
+        algorithm_str = groups[2]
+        checksum = groups[3]
+
+        # Convert algorithm string to enum
+        try:
+            algorithm = ChecksumAlgorithm(algorithm_str)
+        except ValueError:
+            raise ValueError(f"Unknown checksum algorithm '{algorithm_str}' in: {line}")
+
+    return filename, byte_count, checksum, algorithm
 
 
 def is_file_end_delimiter(line: str, filename: str, config: Optional[BundlerConfig] = None) -> bool:
@@ -240,7 +365,7 @@ def skip_end_delimiter(content_bytes: bytes, pos: int, filename: str, config: Op
 
 
 def extract_next_file(
-    content_bytes: bytes, pos: int, config: Optional[BundlerConfig] = None
+    content_bytes: bytes, pos: int, config: Optional[BundlerConfig] = None, verify_checksums: bool = False
 ) -> Tuple[Optional[Tuple[str, str]], int]:
     """Extract the next file from concatenated content.
 
@@ -248,9 +373,13 @@ def extract_next_file(
         content_bytes: Full concatenated content as bytes
         pos: Current position in content
         config: Optional configuration for delimiter format
+        verify_checksums: Whether to require checksum validation for all files
 
     Returns:
         Tuple of ((filename, content), new_position) or (None, new_position) if no valid file found
+
+    Raises:
+        ValueError: If verify_checksums is True and checksum validation fails
     """
     if config is None:
         config = BundlerConfig()
@@ -268,12 +397,19 @@ def extract_next_file(
         return None, line_end + 1
 
     try:
-        filename, byte_count = parse_file_start_delimiter(line, config)
+        filename, byte_count, checksum, algorithm = parse_file_start_delimiter(line, config)
         content_start_pos = line_end + 1
 
         file_content, pos_after_content = extract_file_content_at_position(
             content_bytes, content_start_pos, filename, byte_count
         )
+
+        # Validate checksum if present or required
+        if checksum is not None and algorithm is not None:
+            if not validate_file_checksum(file_content, checksum, algorithm):
+                raise ValueError(f"Checksum validation failed for {filename}")
+        elif verify_checksums:
+            raise ValueError(f"Checksum validation required but not found for {filename}")
 
         final_pos = skip_end_delimiter(content_bytes, pos_after_content, filename, config)
 

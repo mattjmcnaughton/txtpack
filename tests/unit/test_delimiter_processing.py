@@ -5,6 +5,8 @@ from hypothesis import given, strategies as st
 
 from txtpack.delimiter_processing import (
     BundlerConfig,
+    ChecksumAlgorithm,
+    calculate_file_checksum,
     create_file_end_delimiter,
     create_file_start_delimiter,
     extract_file_content_at_position,
@@ -14,6 +16,7 @@ from txtpack.delimiter_processing import (
     is_file_start_delimiter,
     parse_file_start_delimiter,
     skip_end_delimiter,
+    validate_file_checksum,
 )
 from .conftest import file_content_strategy, filename_strategy
 
@@ -30,6 +33,7 @@ class TestBundlerConfig:
         assert config.file_end_prefix == "--- END: "
         assert config.file_end_suffix == " ---"
         assert config.default_search_path == "."
+        assert config.checksum_algorithm == ChecksumAlgorithm.NONE
 
     def test_custom_config(self):
         """Test custom configuration values."""
@@ -45,6 +49,14 @@ class TestBundlerConfig:
         assert config.file_start_bytes_suffix == " bytes] ###"
         assert config.file_end_prefix == "### END: "
         assert config.file_end_suffix == " ###"
+
+    def test_checksum_algorithm_config(self):
+        """Test checksum algorithm configuration."""
+        config = BundlerConfig(checksum_algorithm=ChecksumAlgorithm.MD5)
+        assert config.checksum_algorithm == ChecksumAlgorithm.MD5
+
+        config = BundlerConfig(checksum_algorithm=ChecksumAlgorithm.SHA256)
+        assert config.checksum_algorithm == ChecksumAlgorithm.SHA256
 
 
 class TestCreateFileStartDelimiter:
@@ -82,7 +94,7 @@ class TestCreateFileStartDelimiter:
         assert is_file_start_delimiter(delimiter)
 
         # And should parse back to original values
-        parsed_filename, parsed_bytes = parse_file_start_delimiter(delimiter)
+        parsed_filename, parsed_bytes, _, _ = parse_file_start_delimiter(delimiter)
         assert parsed_filename == filename
         assert parsed_bytes == byte_count
 
@@ -161,7 +173,7 @@ class TestParseFileStartDelimiter:
     def test_parse_valid_delimiter(self):
         """Test parsing valid start delimiter."""
         delimiter = "--- FILE: test.txt (123 bytes) ---"
-        filename, byte_count = parse_file_start_delimiter(delimiter)
+        filename, byte_count, _, _ = parse_file_start_delimiter(delimiter)
 
         assert filename == "test.txt"
         assert byte_count == 123
@@ -169,7 +181,7 @@ class TestParseFileStartDelimiter:
     def test_parse_zero_bytes(self):
         """Test parsing delimiter with zero bytes."""
         delimiter = "--- FILE: empty.txt (0 bytes) ---"
-        filename, byte_count = parse_file_start_delimiter(delimiter)
+        filename, byte_count, _, _ = parse_file_start_delimiter(delimiter)
 
         assert filename == "empty.txt"
         assert byte_count == 0
@@ -177,7 +189,7 @@ class TestParseFileStartDelimiter:
     def test_parse_large_byte_count(self):
         """Test parsing delimiter with large byte count."""
         delimiter = "--- FILE: large.txt (999999 bytes) ---"
-        filename, byte_count = parse_file_start_delimiter(delimiter)
+        filename, byte_count, _, _ = parse_file_start_delimiter(delimiter)
 
         assert filename == "large.txt"
         assert byte_count == 999999
@@ -204,7 +216,7 @@ class TestParseFileStartDelimiter:
         )
 
         delimiter = "### START: test.txt [123 bytes] ###"
-        filename, byte_count = parse_file_start_delimiter(delimiter, config)
+        filename, byte_count, _, _ = parse_file_start_delimiter(delimiter, config)
 
         assert filename == "test.txt"
         assert byte_count == 123
@@ -466,3 +478,265 @@ class TestExtractNextFile:
             extracted_filename, extracted_content = file_data
             assert extracted_filename == filename
             assert extracted_content == file_content
+
+
+class TestChecksumAlgorithm:
+    """Test ChecksumAlgorithm enum."""
+
+    def test_enum_values(self):
+        """Test enum values are correctly defined."""
+        assert ChecksumAlgorithm.NONE.value == "none"
+        assert ChecksumAlgorithm.MD5.value == "md5"
+        assert ChecksumAlgorithm.SHA256.value == "sha256"
+
+
+class TestCalculateFileChecksum:
+    """Test checksum calculation function."""
+
+    def test_md5_checksum(self):
+        """Test MD5 checksum calculation."""
+        content = "hello"
+        checksum = calculate_file_checksum(content, ChecksumAlgorithm.MD5)
+        assert checksum == "5d41402abc4b2a76b9719d911017c592"
+
+    def test_sha256_checksum(self):
+        """Test SHA256 checksum calculation."""
+        content = "hello"
+        checksum = calculate_file_checksum(content, ChecksumAlgorithm.SHA256)
+        assert checksum == "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+
+    def test_none_algorithm(self):
+        """Test that NONE algorithm returns None."""
+        content = "hello"
+        checksum = calculate_file_checksum(content, ChecksumAlgorithm.NONE)
+        assert checksum is None
+
+    def test_unsupported_algorithm(self):
+        """Test that unsupported algorithm raises ValueError."""
+        content = "hello"
+
+        # Create a mock enum value that's not supported
+        class MockAlgorithm:
+            value = "unsupported"
+
+        with pytest.raises(ValueError, match="Unsupported checksum algorithm"):
+            calculate_file_checksum(content, MockAlgorithm())
+
+    def test_empty_content(self):
+        """Test checksum calculation with empty content."""
+        content = ""
+        md5_checksum = calculate_file_checksum(content, ChecksumAlgorithm.MD5)
+        sha256_checksum = calculate_file_checksum(content, ChecksumAlgorithm.SHA256)
+
+        assert md5_checksum == "d41d8cd98f00b204e9800998ecf8427e"
+        assert sha256_checksum == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+    def test_unicode_content(self):
+        """Test checksum calculation with unicode content."""
+        content = "Hello 世界"
+        md5_checksum = calculate_file_checksum(content, ChecksumAlgorithm.MD5)
+        sha256_checksum = calculate_file_checksum(content, ChecksumAlgorithm.SHA256)
+
+        # Verify checksums are generated (exact values depend on UTF-8 encoding)
+        assert len(md5_checksum) == 32
+        assert len(sha256_checksum) == 64
+        assert all(c in "0123456789abcdef" for c in md5_checksum)
+        assert all(c in "0123456789abcdef" for c in sha256_checksum)
+
+
+class TestValidateFileChecksum:
+    """Test checksum validation function."""
+
+    def test_valid_md5_checksum(self):
+        """Test validation with correct MD5 checksum."""
+        content = "hello"
+        expected_checksum = "5d41402abc4b2a76b9719d911017c592"
+
+        assert validate_file_checksum(content, expected_checksum, ChecksumAlgorithm.MD5) is True
+
+    def test_valid_sha256_checksum(self):
+        """Test validation with correct SHA256 checksum."""
+        content = "hello"
+        expected_checksum = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+
+        assert validate_file_checksum(content, expected_checksum, ChecksumAlgorithm.SHA256) is True
+
+    def test_invalid_checksum(self):
+        """Test validation with incorrect checksum."""
+        content = "hello"
+        wrong_checksum = "incorrect_checksum_value"
+
+        assert validate_file_checksum(content, wrong_checksum, ChecksumAlgorithm.MD5) is False
+
+    def test_none_algorithm_always_valid(self):
+        """Test that NONE algorithm always validates as True."""
+        content = "hello"
+        any_checksum = "any_value"
+
+        assert validate_file_checksum(content, any_checksum, ChecksumAlgorithm.NONE) is True
+
+
+class TestCreateFileStartDelimiterWithChecksum:
+    """Test file start delimiter creation with checksum support."""
+
+    def test_delimiter_without_checksum(self):
+        """Test delimiter creation without checksum (backward compatibility)."""
+        delimiter = create_file_start_delimiter("test.txt", 123)
+        assert delimiter == "--- FILE: test.txt (123 bytes) ---"
+
+    def test_delimiter_with_md5_checksum(self):
+        """Test delimiter creation with MD5 checksum."""
+        config = BundlerConfig(checksum_algorithm=ChecksumAlgorithm.MD5)
+        checksum = "5d41402abc4b2a76b9719d911017c592"
+
+        delimiter = create_file_start_delimiter("test.txt", 123, config, checksum)
+        assert delimiter == "--- FILE: test.txt (123 bytes) [md5:5d41402abc4b2a76b9719d911017c592] ---"
+
+    def test_delimiter_with_sha256_checksum(self):
+        """Test delimiter creation with SHA256 checksum."""
+        config = BundlerConfig(checksum_algorithm=ChecksumAlgorithm.SHA256)
+        checksum = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+
+        delimiter = create_file_start_delimiter("test.txt", 123, config, checksum)
+        expected = "--- FILE: test.txt (123 bytes) [sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824] ---"
+        assert delimiter == expected
+
+    def test_delimiter_with_none_algorithm_ignores_checksum(self):
+        """Test that NONE algorithm ignores provided checksum."""
+        config = BundlerConfig(checksum_algorithm=ChecksumAlgorithm.NONE)
+        checksum = "some_checksum"
+
+        delimiter = create_file_start_delimiter("test.txt", 123, config, checksum)
+        assert delimiter == "--- FILE: test.txt (123 bytes) ---"
+
+
+class TestParseFileStartDelimiterWithChecksum:
+    """Test file start delimiter parsing with checksum support."""
+
+    def test_parse_legacy_delimiter(self):
+        """Test parsing legacy delimiter without checksum."""
+        line = "--- FILE: test.txt (123 bytes) ---"
+        filename, byte_count, checksum, algorithm = parse_file_start_delimiter(line)
+
+        assert filename == "test.txt"
+        assert byte_count == 123
+        assert checksum is None
+        assert algorithm is None
+
+    def test_parse_md5_delimiter(self):
+        """Test parsing delimiter with MD5 checksum."""
+        line = "--- FILE: test.txt (123 bytes) [md5:5d41402abc4b2a76b9719d911017c592] ---"
+        filename, byte_count, checksum, algorithm = parse_file_start_delimiter(line)
+
+        assert filename == "test.txt"
+        assert byte_count == 123
+        assert checksum == "5d41402abc4b2a76b9719d911017c592"
+        assert algorithm == ChecksumAlgorithm.MD5
+
+    def test_parse_sha256_delimiter(self):
+        """Test parsing delimiter with SHA256 checksum."""
+        line = "--- FILE: test.txt (123 bytes) [sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824] ---"
+        filename, byte_count, checksum, algorithm = parse_file_start_delimiter(line)
+
+        assert filename == "test.txt"
+        assert byte_count == 123
+        assert checksum == "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+        assert algorithm == ChecksumAlgorithm.SHA256
+
+    def test_parse_invalid_delimiter_with_checksum(self):
+        """Test parsing invalid delimiter raises ValueError."""
+        line = "invalid delimiter format"
+
+        with pytest.raises(ValueError, match="Not a valid start delimiter"):
+            parse_file_start_delimiter(line)
+
+
+class TestIsFileStartDelimiterWithChecksum:
+    """Test file start delimiter detection with checksum support."""
+
+    def test_legacy_delimiter_detected(self):
+        """Test legacy delimiter is detected."""
+        line = "--- FILE: test.txt (123 bytes) ---"
+        assert is_file_start_delimiter(line) is True
+
+    def test_md5_delimiter_detected(self):
+        """Test MD5 delimiter is detected."""
+        line = "--- FILE: test.txt (123 bytes) [md5:abc123] ---"
+        assert is_file_start_delimiter(line) is True
+
+    def test_sha256_delimiter_detected(self):
+        """Test SHA256 delimiter is detected."""
+        line = "--- FILE: test.txt (123 bytes) [sha256:def456] ---"
+        assert is_file_start_delimiter(line) is True
+
+    def test_invalid_line_not_detected(self):
+        """Test invalid line is not detected as delimiter."""
+        line = "regular content line"
+        assert is_file_start_delimiter(line) is False
+
+    def test_partial_delimiter_not_detected(self):
+        """Test partial delimiter is not detected."""
+        line = "--- FILE: test.txt (123 bytes)"
+        assert is_file_start_delimiter(line) is False
+
+
+class TestExtractNextFileWithChecksum:
+    """Test file extraction with checksum validation."""
+
+    def test_extract_file_with_valid_md5(self):
+        """Test extracting file with valid MD5 checksum."""
+        content = "hello"
+        byte_count = len(content.encode("utf-8"))
+        checksum = "5d41402abc4b2a76b9719d911017c592"  # MD5 of "hello"
+
+        delimiter = f"--- FILE: test.txt ({byte_count} bytes) [md5:{checksum}] ---"
+        full_content = f"{delimiter}\n{content}\n--- END: test.txt ---\n".encode("utf-8")
+
+        file_data, new_pos = extract_next_file(full_content, 0)
+
+        assert file_data is not None
+        filename, extracted_content = file_data
+        assert filename == "test.txt"
+        assert extracted_content == content
+
+    def test_extract_file_with_invalid_checksum(self):
+        """Test extracting file with invalid checksum fails."""
+        content = "hello"
+        byte_count = len(content.encode("utf-8"))
+        wrong_checksum = "wrong_checksum_value"
+
+        delimiter = f"--- FILE: test.txt ({byte_count} bytes) [md5:{wrong_checksum}] ---"
+        full_content = f"{delimiter}\n{content}\n--- END: test.txt ---\n".encode("utf-8")
+
+        file_data, new_pos = extract_next_file(full_content, 0)
+
+        # Should return None due to checksum validation failure
+        assert file_data is None
+
+    def test_extract_file_with_verify_checksums_required(self):
+        """Test extracting file with verify_checksums=True when no checksum present."""
+        content = "hello"
+        byte_count = len(content.encode("utf-8"))
+
+        delimiter = f"--- FILE: test.txt ({byte_count} bytes) ---"
+        full_content = f"{delimiter}\n{content}\n--- END: test.txt ---\n".encode("utf-8")
+
+        file_data, new_pos = extract_next_file(full_content, 0, verify_checksums=True)
+
+        # Should return None due to missing checksum when verification required
+        assert file_data is None
+
+    def test_extract_file_without_verify_checksums(self):
+        """Test extracting file without checksums when verification not required."""
+        content = "hello"
+        byte_count = len(content.encode("utf-8"))
+
+        delimiter = f"--- FILE: test.txt ({byte_count} bytes) ---"
+        full_content = f"{delimiter}\n{content}\n--- END: test.txt ---\n".encode("utf-8")
+
+        file_data, new_pos = extract_next_file(full_content, 0, verify_checksums=False)
+
+        assert file_data is not None
+        filename, extracted_content = file_data
+        assert filename == "test.txt"
+        assert extracted_content == content
