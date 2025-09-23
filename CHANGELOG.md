@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/mattjmcnaughton/txtpack/compare/v1.1.0...v1.2.0) (2025-09-23)
+
+
+### Features
+
+* **integrity:** add checksum validation for file integrity verification ([39c1906](https://github.com/mattjmcnaughton/txtpack/commit/39c19067b69786b47c87020a6b53fdae13fbc366)), closes [#3](https://github.com/mattjmcnaughton/txtpack/issues/3)
+
 # [1.1.0](https://github.com/mattjmcnaughton/txtpack/compare/v1.0.0...v1.1.0) (2025-09-19)
 
 
